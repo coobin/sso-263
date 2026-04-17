@@ -1,0 +1,10 @@
+.env
+.env.local
+node_modules
+npm-debug.log
+.DS_Store
+._*
+*.log
+*.pid
+dist
+coverage
