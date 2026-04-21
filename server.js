@@ -98,6 +98,21 @@ function firstHeaderValue(value) {
   return value || "";
 }
 
+function decodeHeaderText(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+
+  try {
+    const decoded = decodeURIComponent(text);
+    if (decoded !== text) return decoded;
+  } catch {
+    // Header was not URL encoded.
+  }
+
+  const utf8Text = Buffer.from(text, "latin1").toString("utf8");
+  return utf8Text.includes("\uFFFD") ? text : utf8Text;
+}
+
 function getClientIp(req) {
   const forwardedFor = firstHeaderValue(req.headers["x-forwarded-for"]);
   if (forwardedFor) return forwardedFor.split(",")[0].trim();
@@ -258,7 +273,7 @@ function getTrustedHeaderUser(req) {
   return {
     email: String(email).trim(),
     userId: String(userId).trim(),
-    name: String(name).trim(),
+    name: decodeHeaderText(name),
   };
 }
 
