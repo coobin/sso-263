@@ -1,7 +1,9 @@
+name: sso-263
+
 services:
-  mailgate-263:
+  sso-263:
     build: .
-    container_name: mailgate-263
+    container_name: sso-263
     restart: unless-stopped
     ports:
       - "127.0.0.1:3000:3000"

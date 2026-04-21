@@ -1,11 +1,11 @@
 {
-  "name": "mailgate-263",
+  "name": "sso-263",
   "version": "1.0.0",
   "description": "A small gateway that bridges Authelia or custom auth to 263 WebMail SSO.",
   "type": "commonjs",
   "repository": {
     "type": "git",
-    "url": "git@github.com:coobin/mailgate-263.git"
+    "url": "git@github.com:coobin/sso-263.git"
   },
   "scripts": {
     "start": "node server.js"

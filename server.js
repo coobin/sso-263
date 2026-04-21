@@ -34,6 +34,7 @@ const REMOTE_EMAIL_HEADER = (
 const REMOTE_NAME_HEADER = (
   process.env.REMOTE_NAME_HEADER || "remote-name"
 ).toLowerCase();
+const AUDIT_LOG_ENABLED = boolEnv("AUDIT_LOG_ENABLED", true);
 
 validateAuthMode();
 
@@ -90,6 +91,51 @@ function serverError(res, message, details) {
   const payload = { error: message };
   if (details) payload.details = details;
   json(res, 500, payload);
+}
+
+function firstHeaderValue(value) {
+  if (Array.isArray(value)) return value[0] || "";
+  return value || "";
+}
+
+function getClientIp(req) {
+  const forwardedFor = firstHeaderValue(req.headers["x-forwarded-for"]);
+  if (forwardedFor) return forwardedFor.split(",")[0].trim();
+
+  const realIp = firstHeaderValue(req.headers["x-real-ip"]);
+  if (realIp) return realIp.trim();
+
+  return req.socket.remoteAddress || "";
+}
+
+function auditLog(req, event, fields = {}) {
+  if (!AUDIT_LOG_ENABLED) return;
+
+  const entry = {
+    ts: new Date().toISOString(),
+    level: "info",
+    event,
+    authMode: AUTH_MODE,
+    method: req.method,
+    path: new URL(req.url, APP_BASE_URL).pathname,
+    ip: getClientIp(req),
+    remoteAddress: req.socket.remoteAddress || "",
+    xForwardedFor: firstHeaderValue(req.headers["x-forwarded-for"]),
+    xRealIp: firstHeaderValue(req.headers["x-real-ip"]),
+    userAgent: firstHeaderValue(req.headers["user-agent"]),
+    ...fields,
+  };
+
+  console.log(JSON.stringify(entry));
+}
+
+function auditUser(user) {
+  if (!user) return {};
+  return {
+    email: user.email || "",
+    userId: user.userId || "",
+    name: user.name || "",
+  };
 }
 
 function parseCookies(req) {
@@ -383,20 +429,33 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === "GET" && url.pathname === "/logout") {
+      auditLog(req, "logout");
       return redirect(res, "/", { "Set-Cookie": clearSessionCookie() });
     }
 
     if (req.method === "GET" && url.pathname === "/") {
       const user = resolveAuthenticatedUser(req);
       if (!user) {
+        auditLog(req, "auth_missing", {
+          status: 401,
+          reason:
+            AUTH_MODE === "trusted_headers"
+              ? "missing_trusted_auth_headers"
+              : "missing_session",
+        });
         if (AUTH_MODE === "trusted_headers") {
           return json(res, 401, {
             error:
               "Missing trusted auth headers. Ensure Nginx Proxy Manager is forwarding Authelia Remote-* headers to this service.",
           });
         }
+        auditLog(req, "auth_login_redirect", { status: 302 });
         return redirect(res, buildAuthLoginUrl(req));
       }
+      auditLog(req, "auth_entry_success", {
+        status: 302,
+        ...auditUser(user),
+      });
       return redirect(res, "/sso/mail");
     }
 
@@ -405,10 +464,21 @@ const server = http.createServer(async (req, res) => {
         return json(res, 404, { error: "Not found" });
       }
       const code = url.searchParams.get("code");
-      if (!code) return badRequest(res, "Missing code");
+      if (!code) {
+        auditLog(req, "auth_callback_rejected", {
+          status: 400,
+          reason: "missing_code",
+        });
+        return badRequest(res, "Missing code");
+      }
 
       const user = await exchangeCodeForUser(code);
       if (!ensureCompanyMailbox(user.email)) {
+        auditLog(req, "auth_callback_rejected", {
+          status: 403,
+          reason: "mailbox_domain_not_allowed",
+          ...auditUser(user),
+        });
         return json(res, 403, {
           error: `Only @${AUTH_CORP_ID} mailboxes can use this entrypoint`,
         });
@@ -416,12 +486,24 @@ const server = http.createServer(async (req, res) => {
 
       const sessionCookie = createSessionCookie(user);
       const next = parseState(url.searchParams.get("state"));
+      auditLog(req, "auth_callback_success", {
+        status: 302,
+        next,
+        ...auditUser(user),
+      });
       return redirect(res, next, { "Set-Cookie": sessionCookie });
     }
 
     if (req.method === "GET" && url.pathname === "/sso/mail") {
       const user = resolveAuthenticatedUser(req);
       if (!user) {
+        auditLog(req, "mail_sso_rejected", {
+          status: AUTH_MODE === "trusted_headers" ? 401 : 302,
+          reason:
+            AUTH_MODE === "trusted_headers"
+              ? "missing_trusted_auth_headers"
+              : "missing_session",
+        });
         if (AUTH_MODE === "trusted_headers") {
           return json(res, 401, {
             error:
@@ -431,10 +513,20 @@ const server = http.createServer(async (req, res) => {
         return redirect(res, buildAuthLoginUrl(req));
       }
       if (!ensureCompanyMailbox(user.email)) {
+        auditLog(req, "mail_sso_rejected", {
+          status: 403,
+          reason: "mailbox_domain_not_allowed",
+          ...auditUser(user),
+        });
         return json(res, 403, {
           error: `Only @${AUTH_CORP_ID} mailboxes can use this entrypoint`,
         });
       }
+      auditLog(req, "mail_sso_success", {
+        status: 302,
+        platform: detectPlatform(req.headers["user-agent"]),
+        ...auditUser(user),
+      });
       return redirect(res, build263Url(req, user));
     }
 
@@ -449,10 +541,14 @@ const server = http.createServer(async (req, res) => {
 
     return json(res, 404, { error: "Not found" });
   } catch (error) {
+    auditLog(req, "request_error", {
+      status: 500,
+      error: error.message,
+    });
     return serverError(res, "Unexpected server error", error.message);
   }
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`mail-sso listening on port ${PORT}`);
+  console.log(`sso-263 listening on port ${PORT}`);
 });

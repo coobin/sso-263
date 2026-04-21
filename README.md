@@ -1,6 +1,6 @@
-# MailGate 263
+# SSO 263
 
-`MailGate 263` 是一个很小的网关服务，用来把你自己的认证系统接到 263 企业邮箱的 WebMail SSO。
+`SSO 263` 是一个很小的网关服务，用来把你自己的认证系统接到 263 企业邮箱的 WebMail SSO。
 
 它最适合这样的场景：
 
@@ -21,17 +21,17 @@
 
 1. 用户访问 `https://mail.example.com`
 2. 反向代理先交给认证系统校验是否已登录
-3. 认证通过后，反向代理把 `Remote-User`、`Remote-Email`、`Remote-Name` 等头转发给 `MailGate 263`
-4. `MailGate 263` 使用邮箱地址生成 263 SSO 跳转链接
+3. 认证通过后，反向代理把 `Remote-User`、`Remote-Email`、`Remote-Name` 等头转发给 `SSO 263`
+4. `SSO 263` 使用邮箱地址生成 263 SSO 跳转链接
 5. 浏览器被 302 跳转到 263 WebMail 收件箱
 
 `exchange_code` 模式：
 
 1. 用户访问 `https://mail.example.com`
-2. `MailGate 263` 重定向到你的认证系统
+2. `SSO 263` 重定向到你的认证系统
 3. 认证系统登录成功后回跳 `/auth/callback?code=...`
-4. `MailGate 263` 用 `code` 换取用户信息
-5. `MailGate 263` 生成 263 SSO 跳转链接
+4. `SSO 263` 用 `code` 换取用户信息
+5. `SSO 263` 生成 263 SSO 跳转链接
 
 **路由**
 
@@ -198,6 +198,29 @@ MD5(secret + loginPlatform + type + partnerid + authcorpid + userid + timestamp)
 - 最后再测 `/sso/mail`
   确认 263 跳转是否生成成功
 
+**登录审计日志**
+
+服务会默认把登录相关事件按一行一个 JSON 写到标准输出，容器部署时可以直接用 `docker logs sso-263` 查看。
+
+记录的事件包括：
+
+- `auth_entry_success`
+- `auth_missing`
+- `auth_callback_success`
+- `auth_callback_rejected`
+- `mail_sso_success`
+- `mail_sso_rejected`
+- `logout`
+- `request_error`
+
+每条日志会包含时间、认证模式、请求路径、来源 IP、`X-Forwarded-For`、`X-Real-IP`、浏览器 UA、邮箱、用户 ID、姓名、状态码和拒绝原因等字段。日志不会记录 263 签名、密钥或生成后的 SSO 跳转地址。
+
+如果需要关闭审计日志，可以设置：
+
+```env
+AUDIT_LOG_ENABLED=false
+```
+
 如果最终停在 263 错误页，优先检查：
 
 - `API_SECRET` 是否正确
@@ -209,7 +232,7 @@ MD5(secret + loginPlatform + type + partnerid + authcorpid + userid + timestamp)
 
 仓库地址：
 
-`git@github.com:coobin/mailgate-263.git`
+`git@github.com:coobin/sso-263.git`
 
 如果你准备把它用于生产环境，建议再补充：
 
