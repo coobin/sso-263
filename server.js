@@ -123,11 +123,30 @@ function getClientIp(req) {
   return req.socket.remoteAddress || "";
 }
 
+function formatIsoTimestampWithOffset(date, offsetMinutes) {
+  const shifted = new Date(date.getTime() + offsetMinutes * 60 * 1000);
+  const y = shifted.getUTCFullYear();
+  const m = String(shifted.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(shifted.getUTCDate()).padStart(2, "0");
+  const hh = String(shifted.getUTCHours()).padStart(2, "0");
+  const mm = String(shifted.getUTCMinutes()).padStart(2, "0");
+  const ss = String(shifted.getUTCSeconds()).padStart(2, "0");
+  const ms = String(shifted.getUTCMilliseconds()).padStart(3, "0");
+
+  const sign = offsetMinutes >= 0 ? "+" : "-";
+  const absOffset = Math.abs(offsetMinutes);
+  const offsetHours = String(Math.floor(absOffset / 60)).padStart(2, "0");
+  const offsetMins = String(absOffset % 60).padStart(2, "0");
+  const offset = `${sign}${offsetHours}:${offsetMins}`;
+
+  return `${y}-${m}-${d}T${hh}:${mm}:${ss}.${ms}${offset}`;
+}
+
 function auditLog(req, event, fields = {}) {
   if (!AUDIT_LOG_ENABLED) return;
 
   const entry = {
-    ts: new Date().toISOString(),
+    ts: formatIsoTimestampWithOffset(new Date(), 8 * 60),
     level: "info",
     event,
     authMode: AUTH_MODE,
